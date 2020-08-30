@@ -11,21 +11,67 @@ const CONFIG = {
     alwaysPreparedSpells: (classId, classLevel) =>
       `https://character-service.dndbeyond.com/character/v4/game-data/always-prepared-spells?classId=${classId}&classLevel=${classLevel}`,
   },
+  cache: {
+    expiration: 24, // expiration in hours
+  },
 };
+
+const CACHE = [];
 
 const isValidSpellData = data => {
   return data.success === true;
 };
 
+const isExpired = timestamp => {
+  return (new Date().valueOf() - timestamp) / (1000 * 60 * 60 * CONFIG.cache.expiration) >= 1;
+};
+
+const checkCache = classId => {
+  return CACHE.find(cache => cache.classId === classId && !isExpired(cache.lastUpdate));
+};
+
+const addToCache = (classId, data) => {
+  const index = CACHE.find(cache => cache.classId === classId);
+  if (index) {
+    console.log("Removing expired entry from cache");
+    CACHE = CACHE.filter(cache => cache.classId !== classId);
+  }
+  console.log("Adding to the Cache (Class ID: " + classId + "): " + data.length + " spells.");
+  CACHE.push({
+    classId: classId,
+    lastUpdate: new Date().valueOf(),
+    data: data,
+  });
+};
+
+const filterByLevel = (data, classLevel) => {
+  const filteredSpellList = data.filter(spell => {
+    return spell.definition.level <= classLevel;
+  });
+  return filteredSpellList;
+};
+
 const retrieveAlwaysPreparedSpells = (classId, classLevel) => {
   return new Promise((resolve, reject) => {
-    const url = CONFIG.urls.alwaysPreparedSpells(classId, classLevel);
+    const cache = checkCache(classId);
+    if (cache !== undefined) {
+      const filteredSpells = filterByLevel(cache.data, classLevel);
+      console.log(`Adding ${filteredSpells.length}/${cache.data.length} spells FROM CACHE`);
+      return resolve(filteredSpells);
+    }
+
+    const url = CONFIG.urls.alwaysPreparedSpells(classId, 20);
     fetch(url)
       .then(res => res.json())
       .then(json => {
         if (isValidSpellData(json)) {
-          resolve(json.data);
+          console.log(json);
+          addToCache(classId, json.data);
+          const filteredSpells = filterByLevel(json.data, classLevel);
+          console.log(`Adding ${filteredSpells.length}/${json.data.length} spells`);
+          resolve(filteredSpells);
         } else {
+          console.log("Received no valid spell data, instead:" + json.message);
           reject(json.message);
         }
       })
@@ -60,10 +106,8 @@ const retrieveCharacterInfo = data => {
     Promise.allSettled(classInfo.map(classInfo => retrieveAlwaysPreparedSpells(classInfo.id, classInfo.level)))
       .then(results => {
         // combining all resolved results
-        console.log(results);
         results.forEach((result, index) => {
           if (result.status === "fulfilled") {
-            console.log("Result #" + index + ": " + result.value);
             classInfo[index].spells = result.value;
           }
         });
@@ -80,6 +124,8 @@ const retrieveCharacterInfo = data => {
               if (classSpells.spells.find(s => s.definition.name === spell.definition.name) === undefined) {
                 console.log("Adding new always prepared spell: " + spell.definition.name);
                 classSpells.spells.push(spell);
+              } else {
+                console.log("Already in list: " + spell.definition.name);
               }
             });
           }
@@ -98,7 +144,6 @@ const isValidCharacterData = data => {
 const retrieveCharacterData = characterId => {
   return new Promise((resolve, reject) => {
     const characterUrl = CONFIG.urls.characterUrl(characterId);
-    console.log("URL: " + characterUrl);
     fetch(characterUrl)
       .then(res => res.json())
       .then(json => {
@@ -124,13 +169,11 @@ app.get("/:characterId", cors(), (req, res) => {
     return res.json({ message: "Invalid query" });
   }
 
-  console.log("characterId: " + characterId);
-
   retrieveCharacterData(req.params.characterId)
     .then(result => retrieveCharacterInfo(result))
     .then(data => res.json(data));
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening at http://localhost:${port}`);
+  console.log(`DDB Character API started on :${port}`);
 });
