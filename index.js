@@ -44,19 +44,21 @@ const addToCache = (classId, data) => {
   });
 };
 
-const filterByLevel = (data, classLevel) => {
+const filterByLevel = (data, spellLevelAccess) => {
   const filteredSpellList = data.filter(spell => {
-    return spell.definition.level <= classLevel;
+    return spell.definition.level <= spellLevelAccess;
   });
   return filteredSpellList;
 };
 
-const retrieveAlwaysPreparedSpells = (classId, classLevel) => {
+const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
   return new Promise((resolve, reject) => {
     const cache = checkCache(classId);
     if (cache !== undefined) {
-      const filteredSpells = filterByLevel(cache.data, classLevel);
-      console.log(`Adding ${filteredSpells.length}/${cache.data.length} spells FROM CACHE`);
+      const filteredSpells = filterByLevel(cache.data, spellLevelAccess);
+      console.log(
+        `Adding ${filteredSpells.length}/${cache.data.length} lvl${spellLevelAccess} spells FROM CACHE to character`
+      );
       return resolve(filteredSpells);
     }
 
@@ -65,10 +67,9 @@ const retrieveAlwaysPreparedSpells = (classId, classLevel) => {
       .then(res => res.json())
       .then(json => {
         if (isValidSpellData(json)) {
-          console.log(json);
           addToCache(classId, json.data);
-          const filteredSpells = filterByLevel(json.data, classLevel);
-          console.log(`Adding ${filteredSpells.length}/${json.data.length} spells`);
+          const filteredSpells = filterByLevel(json.data, spellLevelAccess);
+          console.log(`Adding ${filteredSpells.length}/${json.data.length} lvl${spellLevelAccess} spells to character`);
           resolve(filteredSpells);
         } else {
           console.log("Received no valid spell data, instead:" + json.message);
@@ -78,6 +79,21 @@ const retrieveAlwaysPreparedSpells = (classId, classLevel) => {
 
       .catch(error => reject(error));
   });
+};
+
+const getCasterLevel = cls => {
+  let casterLevel = 0;
+  // get the casting level if the character is a multiclassed spellcaster
+  if (cls.definition.spellRules && cls.definition.spellRules.multiClassSpellSlotDivisor) {
+    casterLevel = Math.floor(cls.level / cls.definition.spellRules.multiClassSpellSlotDivisor);
+  }
+  return casterLevel;
+};
+
+const getSpellLevelAccess = (cls, casterLevel) => {
+  const spellSlots = cls.definition.spellRules.levelSpellSlots[casterLevel];
+  const spellLevelAccess = spellSlots.reduce((count, numSpellSlots) => (numSpellSlots > 0 ? count + 1 : count), 0);
+  return spellLevelAccess;
 };
 
 const getClassIds = data => {
@@ -92,7 +108,8 @@ const getClassIds = data => {
         characterClass.subclassDefinition && characterClass.subclassDefinition.id
           ? characterClass.subclassDefinition.id
           : characterClass.definition.id,
-      level: characterClass.level,
+      level: getCasterLevel(characterClass),
+      spellLevelAccess: getSpellLevelAccess(characterClass, getCasterLevel(characterClass)),
       spells: [],
     };
   });
@@ -103,7 +120,9 @@ const retrieveCharacterInfo = data => {
     const classInfo = getClassIds(data);
     console.log(classInfo);
 
-    Promise.allSettled(classInfo.map(classInfo => retrieveAlwaysPreparedSpells(classInfo.id, classInfo.level)))
+    Promise.allSettled(
+      classInfo.map(classInfo => retrieveAlwaysPreparedSpells(classInfo.id, classInfo.spellLevelAccess))
+    )
       .then(results => {
         // combining all resolved results
         results.forEach((result, index) => {
