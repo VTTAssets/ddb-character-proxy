@@ -158,20 +158,25 @@ const retrieveCharacterInfo = data => {
 };
 
 const isValidCharacterData = data => {
-  return data.success === true;
+  console.log(data);
+  return data && data.success === true;
+};
+
+const checkStatus = res => {
+  if (res.ok) {
+    // res.status >= 200 && res.status < 300
+    return res;
+  } else {
+    throw res.statusText;
+  }
 };
 
 const retrieveCharacterData = characterId => {
   return new Promise((resolve, reject) => {
     const characterUrl = CONFIG.urls.characterUrl(characterId);
     fetch(characterUrl)
-      .then(res => {
-        if (res.status !== 200) {
-          reject(res.status);
-        } else {
-          res.json();
-        }
-      })
+      .then(checkStatus)
+      .then(res => res.json())
       .then(json => {
         if (isValidCharacterData(json)) {
           resolve(json.data);
@@ -179,8 +184,10 @@ const retrieveCharacterData = characterId => {
           reject(json.message);
         }
       })
-
-      .catch(error => reject(error));
+      .catch(error => {
+        console.log(`retrieveCharacterData(${characterId}): ${error}`);
+        reject(error);
+      });
   });
 };
 
@@ -197,14 +204,19 @@ app.get("/:characterId", cors(), (req, res) => {
 
   retrieveCharacterData(characterId)
     .then(result => retrieveCharacterInfo(result))
-    .then(data => res.json(data))
+    .then(data => {
+      console.log("Data to send: ");
+      console.log(data);
+      return res.status(200).json({ success: true, message: "Character successfully received.", data: data });
+    })
     .catch(error => {
-      if (error === 403) {
-        return res
-          .status(error)
-          .json({ success: false, message: "Character must be set to public in order to be accessible." });
+      console.log(error);
+      console.log("Data to send:");
+      console.log({ success: false, message: "Character must be set to public in order to be accessible." });
+      if (error === "Forbidden") {
+        return res.json({ success: false, message: "Character must be set to public in order to be accessible." });
       }
-      return res.status(error).json({ success: false, message: "An unknown error occurred (Status: " + error + ")" });
+      return res.json({ success: false, message: "Unkown error during character loading: " + error });
     });
 });
 
