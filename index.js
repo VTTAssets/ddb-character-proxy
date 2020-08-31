@@ -66,6 +66,7 @@ const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
     fetch(url)
       .then(res => res.json())
       .then(json => {
+        console.log(json);
         if (isValidSpellData(json)) {
           addToCache(classId, json.data);
           const filteredSpells = filterByLevel(json.data, spellLevelAccess);
@@ -164,7 +165,13 @@ const retrieveCharacterData = characterId => {
   return new Promise((resolve, reject) => {
     const characterUrl = CONFIG.urls.characterUrl(characterId);
     fetch(characterUrl)
-      .then(res => res.json())
+      .then(res => {
+        if (res.status !== 200) {
+          reject(res.status);
+        } else {
+          res.json();
+        }
+      })
       .then(json => {
         if (isValidCharacterData(json)) {
           resolve(json.data);
@@ -188,9 +195,17 @@ app.get("/:characterId", cors(), (req, res) => {
     return res.json({ message: "Invalid query" });
   }
 
-  retrieveCharacterData(req.params.characterId)
+  retrieveCharacterData(characterId)
     .then(result => retrieveCharacterInfo(result))
-    .then(data => res.json(data));
+    .then(data => res.json(data))
+    .catch(error => {
+      if (error === 403) {
+        return res
+          .status(error)
+          .json({ success: false, message: "Character must be set to public in order to be accessible." });
+      }
+      return res.status(error).json({ success: false, message: "An unknown error occurred (Status: " + error + ")" });
+    });
 });
 
 app.listen(port, () => {
