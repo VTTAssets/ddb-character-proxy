@@ -116,11 +116,8 @@ const getClassIds = data => {
   });
 };
 
-const retrieveCharacterInfo = data => {
+const retrieveAllAlwaysPreparedSpells = classInfo => {
   return new Promise((resolve, reject) => {
-    const classInfo = getClassIds(data);
-    console.log(classInfo);
-
     Promise.allSettled(
       classInfo.map(classInfo => retrieveAlwaysPreparedSpells(classInfo.id, classInfo.spellLevelAccess))
     )
@@ -131,29 +128,38 @@ const retrieveCharacterInfo = data => {
             classInfo[index].spells = result.value;
           }
         });
-
-        // add the always prepared spells to the class' spell list
-        data.classSpells = data.classSpells.map(classSpells => {
-          // find always prepared spells in the results
-          const alwaysPreparedSpells = classInfo.find(
-            classInfo => classInfo.characterClassId === classSpells.characterClassId
-          );
-
-          if (alwaysPreparedSpells) {
-            alwaysPreparedSpells.spells.forEach(spell => {
-              if (classSpells.spells.find(s => s.definition.name === spell.definition.name) === undefined) {
-                console.log("Adding new always prepared spell: " + spell.definition.name);
-                classSpells.spells.push(spell);
-              } else {
-                console.log("Already in list: " + spell.definition.name);
-              }
-            });
-          }
-          return classSpells;
-        });
-        resolve(data);
+        resolve(classInfo);
       })
       .catch(error => reject(error));
+  });
+};
+
+const retrieveCharacterInfo = data => {
+  return new Promise((resolve, reject) => {
+    const classInfo = getClassIds(data);
+    console.log(classInfo);
+    retrieveAllAlwaysPreparedSpells(classInfo).then(classInfo => {
+      // add the always prepared spells to the class' spell list
+      data.classSpells = data.classSpells.map(classSpells => {
+        // find always prepared spells in the results
+        const alwaysPreparedSpells = classInfo.find(
+          classInfo => classInfo.characterClassId === classSpells.characterClassId
+        );
+
+        if (alwaysPreparedSpells) {
+          alwaysPreparedSpells.spells.forEach(spell => {
+            if (classSpells.spells.find(s => s.definition.name === spell.definition.name) === undefined) {
+              console.log("Adding new always prepared spell: " + spell.definition.name);
+              classSpells.spells.push(spell);
+            } else {
+              console.log("Already in list: " + spell.definition.name);
+            }
+          });
+        }
+        return classSpells;
+      });
+      resolve(data);
+    });
   });
 };
 
@@ -213,6 +219,27 @@ app.get("/:characterId", cors(), (req, res) => {
       console.log(error);
       console.log("Data to send:");
       console.log({ success: false, message: "Character must be set to public in order to be accessible." });
+      if (error === "Forbidden") {
+        return res.json({ success: false, message: "Character must be set to public in order to be accessible." });
+      }
+      return res.json({ success: false, message: "Unkown error during character loading: " + error });
+    });
+});
+
+app.options("/alwaysPreparedSpells", cors(), (req, res) => res.status(200).send());
+app.post("/alwaysPreparedSpells", cors(), express.json(), (req, res) => {
+  console.log(req.body);
+  retrieveAllAlwaysPreparedSpells(req.body)
+    .then(data => {
+      console.log("Data to send: ");
+      console.log(data);
+      return res
+        .status(200)
+        .json({ success: true, message: "Always prepared spells successfully received.", data: data });
+    })
+    .catch(error => {
+      console.log(error);
+      console.log("Data to send:");
       if (error === "Forbidden") {
         return res.json({ success: false, message: "Character must be set to public in order to be accessible." });
       }
