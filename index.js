@@ -52,6 +52,7 @@ const filterByLevel = (data, spellLevelAccess) => {
 };
 
 const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
+  console.log("Retrieving always prepared spells for " + classId + " at spell level access " + spellLevelAccess);
   return new Promise((resolve, reject) => {
     const cache = checkCache(classId);
     if (cache !== undefined) {
@@ -66,7 +67,7 @@ const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
     fetch(url)
       .then(res => res.json())
       .then(json => {
-        console.log(json);
+        console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (isValidSpellData(json)) {
           addToCache(classId, json.data);
           const filteredSpells = filterByLevel(json.data, spellLevelAccess);
@@ -82,12 +83,17 @@ const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
   });
 };
 
-const getCasterLevel = cls => {
+const getCasterLevel = (cls, isMultiClassing) => {
   let casterLevel = 0;
-  // get the casting level if the character is a multiclassed spellcaster
-  if (cls.definition.spellRules && cls.definition.spellRules.multiClassSpellSlotDivisor) {
-    casterLevel = Math.floor(cls.level / cls.definition.spellRules.multiClassSpellSlotDivisor);
+  if (isMultiClassing) {
+    // get the casting level if the character is a multiclassed spellcaster
+    if (cls.definition.spellRules && cls.definition.spellRules.multiClassSpellSlotDivisor) {
+      casterLevel = Math.floor(cls.level / cls.definition.spellRules.multiClassSpellSlotDivisor);
+    }
+  } else {
+    casterLevel = cls.level;
   }
+
   return casterLevel;
 };
 
@@ -98,6 +104,7 @@ const getSpellLevelAccess = (cls, casterLevel) => {
 };
 
 const getClassIds = data => {
+  const isMultiClassing = data.classes.length > 1;
   return data.classes.map(characterClass => {
     return {
       characterClassId: characterClass.id,
@@ -109,7 +116,7 @@ const getClassIds = data => {
         characterClass.subclassDefinition && characterClass.subclassDefinition.id
           ? characterClass.subclassDefinition.id
           : characterClass.definition.id,
-      level: getCasterLevel(characterClass),
+      level: getCasterLevel(characterClass, isMultiClassing),
       spellLevelAccess: getSpellLevelAccess(characterClass, getCasterLevel(characterClass)),
       spells: [],
     };
@@ -137,7 +144,9 @@ const retrieveAllAlwaysPreparedSpells = classInfo => {
 const retrieveCharacterInfo = data => {
   return new Promise((resolve, reject) => {
     const classInfo = getClassIds(data);
+    console.log("CLASS INFORMATION:");
     console.log(classInfo);
+    console.log("---");
     retrieveAllAlwaysPreparedSpells(classInfo).then(classInfo => {
       // add the always prepared spells to the class' spell list
       data.classSpells = data.classSpells.map(classSpells => {
@@ -164,7 +173,6 @@ const retrieveCharacterInfo = data => {
 };
 
 const isValidCharacterData = data => {
-  console.log(data);
   return data && data.success === true;
 };
 
@@ -212,6 +220,7 @@ app.get("/:characterId", cors(), (req, res) => {
     .then(result => retrieveCharacterInfo(result))
     .then(data => {
       console.log("Data to send: ");
+      //require("fs").writeFileSync(__dirname + "/_data/" + characterId + ".json", JSON.stringify(data, null, 3));
       console.log(data);
       return res.status(200).json({ success: true, message: "Character successfully received.", data: data });
     })
