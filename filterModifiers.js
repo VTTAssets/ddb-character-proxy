@@ -46,6 +46,10 @@ const getClassFeatures = (cls, classLevel = 20) => {
       .concat(cls.subclassDefinition.classFeatures)
       .filter(classFeature => classFeature.requiredLevel <= classLevel)
       .sort((a, b) => a.requiredLevel - b.requiredLevel);
+  } else {
+    return cls.classFeatures
+      .filter(classFeature => classFeature.requiredLevel <= classLevel)
+      .sort((a, b) => a.requiredLevel - b.requiredLevel);
   }
 };
 
