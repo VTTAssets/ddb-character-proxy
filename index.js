@@ -2,46 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
 
-/**
- * CONFIG
- */
-const CONFIG = {
-  urls: {
-    characterUrl: characterId => `https://character-service.dndbeyond.com/character/v3/character/${characterId}`,
-    alwaysPreparedSpells: (classId, classLevel) =>
-      `https://character-service.dndbeyond.com/character/v4/game-data/always-prepared-spells?classId=${classId}&classLevel=${classLevel}`,
-  },
-  cache: {
-    expiration: 24, // expiration in hours
-  },
-};
+const CONFIG = require("./config");
+const Cache = require("./cache");
+const filterModifiers = require("./filterModifiers");
 
-const CACHE = [];
+const CACHE = new Cache();
 
-const isValidSpellData = data => {
+const isValidData = data => {
   return data.success === true;
-};
-
-const isExpired = timestamp => {
-  return (new Date().valueOf() - timestamp) / (1000 * 60 * 60 * CONFIG.cache.expiration) >= 1;
-};
-
-const checkCache = classId => {
-  return CACHE.find(cache => cache.classId === classId && !isExpired(cache.lastUpdate));
-};
-
-const addToCache = (classId, data) => {
-  const index = CACHE.find(cache => cache.classId === classId);
-  if (index) {
-    console.log("Removing expired entry from cache");
-    CACHE = CACHE.filter(cache => cache.classId !== classId);
-  }
-  console.log("Adding to the Cache (Class ID: " + classId + "): " + data.length + " spells.");
-  CACHE.push({
-    classId: classId,
-    lastUpdate: new Date().valueOf(),
-    data: data,
-  });
 };
 
 const filterByLevel = (data, spellLevelAccess) => {
@@ -51,14 +19,14 @@ const filterByLevel = (data, spellLevelAccess) => {
   return filteredSpellList;
 };
 
-const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
+const extractAlwaysPreparedSpells = (classId, spellLevelAccess) => {
   console.log("Retrieving always prepared spells for " + classId + " at spell level access " + spellLevelAccess);
   return new Promise((resolve, reject) => {
-    const cache = checkCache(classId);
+    const cache = CACHE.exists(classId);
     if (cache !== undefined) {
       const filteredSpells = filterByLevel(cache.data, spellLevelAccess);
       console.log(
-        `Adding ${filteredSpells.length}/${cache.data.length} lvl${spellLevelAccess} spells FROM CACHE to character`
+        `Adding ${filteredSpells.length} of ${cache.data.length} lvl${spellLevelAccess} spells FROM CACHE to character`
       );
       return resolve(filteredSpells);
     }
@@ -68,10 +36,12 @@ const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
       .then(res => res.json())
       .then(json => {
         console.log(json.data.map(sp => sp.definition.name).join(", "));
-        if (isValidSpellData(json)) {
-          addToCache(classId, json.data);
+        if (isValidData(json)) {
+          CACHE.add(classId, json.data);
           const filteredSpells = filterByLevel(json.data, spellLevelAccess);
-          console.log(`Adding ${filteredSpells.length}/${json.data.length} lvl${spellLevelAccess} spells to character`);
+          console.log(
+            `Adding ${filteredSpells.length} of ${json.data.length} spells available to a lvl${spellLevelAccess} caster...`
+          );
           resolve(filteredSpells);
         } else {
           console.log("Received no valid spell data, instead:" + json.message);
@@ -79,11 +49,15 @@ const retrieveAlwaysPreparedSpells = (classId, spellLevelAccess) => {
         }
       })
 
-      .catch(error => reject(error));
+      .catch(error => {
+        console.log("Error retrieving spells");
+        console.log(error);
+        reject(error);
+      });
   });
 };
 
-const getCasterLevel = (cls, isMultiClassing) => {
+const extractCasterLevel = (cls, isMultiClassing) => {
   let casterLevel = 0;
   if (isMultiClassing) {
     // get the casting level if the character is a multiclassed spellcaster
@@ -97,13 +71,13 @@ const getCasterLevel = (cls, isMultiClassing) => {
   return casterLevel;
 };
 
-const getSpellLevelAccess = (cls, casterLevel) => {
+const extractSpellLevelAccess = (cls, casterLevel) => {
   const spellSlots = cls.definition.spellRules.levelSpellSlots[casterLevel];
   const spellLevelAccess = spellSlots.reduce((count, numSpellSlots) => (numSpellSlots > 0 ? count + 1 : count), 0);
   return spellLevelAccess;
 };
 
-const getClassIds = data => {
+const extractClassIds = data => {
   const isMultiClassing = data.classes.length > 1;
   return data.classes.map(characterClass => {
     return {
@@ -116,17 +90,17 @@ const getClassIds = data => {
         characterClass.subclassDefinition && characterClass.subclassDefinition.id
           ? characterClass.subclassDefinition.id
           : characterClass.definition.id,
-      level: getCasterLevel(characterClass, isMultiClassing),
-      spellLevelAccess: getSpellLevelAccess(characterClass, getCasterLevel(characterClass)),
+      level: extractCasterLevel(characterClass, isMultiClassing),
+      spellLevelAccess: extractSpellLevelAccess(characterClass, extractCasterLevel(characterClass)),
       spells: [],
     };
   });
 };
 
-const retrieveAllAlwaysPreparedSpells = classInfo => {
+const loadAlwaysPreparedSpells = classInfo => {
   return new Promise((resolve, reject) => {
     Promise.allSettled(
-      classInfo.map(classInfo => retrieveAlwaysPreparedSpells(classInfo.id, classInfo.spellLevelAccess))
+      classInfo.map(classInfo => extractAlwaysPreparedSpells(classInfo.id, classInfo.spellLevelAccess))
     )
       .then(results => {
         // combining all resolved results
@@ -141,13 +115,13 @@ const retrieveAllAlwaysPreparedSpells = classInfo => {
   });
 };
 
-const retrieveCharacterInfo = data => {
+const insertAlwaysPreparedSpells = data => {
   return new Promise((resolve, reject) => {
-    const classInfo = getClassIds(data);
+    const classInfo = extractClassIds(data);
     console.log("CLASS INFORMATION:");
     console.log(classInfo);
     console.log("---");
-    retrieveAllAlwaysPreparedSpells(classInfo).then(classInfo => {
+    loadAlwaysPreparedSpells(classInfo).then(classInfo => {
       // add the always prepared spells to the class' spell list
       data.classSpells = data.classSpells.map(classSpells => {
         // find always prepared spells in the results
@@ -158,10 +132,8 @@ const retrieveCharacterInfo = data => {
         if (alwaysPreparedSpells) {
           alwaysPreparedSpells.spells.forEach(spell => {
             if (classSpells.spells.find(s => s.definition.name === spell.definition.name) === undefined) {
-              console.log("Adding new always prepared spell: " + spell.definition.name);
+              console.log(" + Adding spell to character: " + spell.definition.name);
               classSpells.spells.push(spell);
-            } else {
-              console.log("Already in list: " + spell.definition.name);
             }
           });
         }
@@ -170,10 +142,6 @@ const retrieveCharacterInfo = data => {
       resolve(data);
     });
   });
-};
-
-const isValidCharacterData = data => {
-  return data && data.success === true;
 };
 
 const checkStatus = res => {
@@ -185,21 +153,21 @@ const checkStatus = res => {
   }
 };
 
-const retrieveCharacterData = characterId => {
+const loadCharacterData = characterId => {
   return new Promise((resolve, reject) => {
     const characterUrl = CONFIG.urls.characterUrl(characterId);
     fetch(characterUrl)
       .then(checkStatus)
       .then(res => res.json())
       .then(json => {
-        if (isValidCharacterData(json)) {
+        if (isValidData(json)) {
           resolve(json.data);
         } else {
           reject(json.message);
         }
       })
       .catch(error => {
-        console.log(`retrieveCharacterData(${characterId}): ${error}`);
+        console.log(`getCharacterData(${characterId}): ${error}`);
         reject(error);
       });
   });
@@ -216,18 +184,14 @@ app.get("/:characterId", cors(), (req, res) => {
     return res.json({ message: "Invalid query" });
   }
 
-  retrieveCharacterData(characterId)
-    .then(result => retrieveCharacterInfo(result))
+  loadCharacterData(characterId)
+    .then(result => insertAlwaysPreparedSpells(result))
     .then(data => {
-      console.log("Data to send: ");
-      //require("fs").writeFileSync(__dirname + "/_data/" + characterId + ".json", JSON.stringify(data, null, 3));
-      console.log(data);
+      data = filterModifiers(data);
       return res.status(200).json({ success: true, message: "Character successfully received.", data: data });
     })
     .catch(error => {
       console.log(error);
-      console.log("Data to send:");
-      console.log({ success: false, message: "Character must be set to public in order to be accessible." });
       if (error === "Forbidden") {
         return res.json({ success: false, message: "Character must be set to public in order to be accessible." });
       }
@@ -238,17 +202,14 @@ app.get("/:characterId", cors(), (req, res) => {
 app.options("/alwaysPreparedSpells", cors(), (req, res) => res.status(200).send());
 app.post("/alwaysPreparedSpells", cors(), express.json(), (req, res) => {
   console.log(req.body);
-  retrieveAllAlwaysPreparedSpells(req.body)
+  loadAlwaysPreparedSpells(req.body)
     .then(data => {
-      console.log("Data to send: ");
-      console.log(data);
       return res
         .status(200)
         .json({ success: true, message: "Always prepared spells successfully received.", data: data });
     })
     .catch(error => {
       console.log(error);
-      console.log("Data to send:");
       if (error === "Forbidden") {
         return res.json({ success: false, message: "Character must be set to public in order to be accessible." });
       }
