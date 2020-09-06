@@ -17,11 +17,11 @@ class Cache {
   }
 
   add(classId, data) {
-    console.log("Adding to the Cache (Class ID: " + classId + "): " + data.length + " spells.");
+    console.log("[CACHE] Adding to the Cache (Class ID: " + classId + "): " + data.length + " spells.");
 
     const index = this.items.find(cache => cache.classId === classId);
     if (index) {
-      console.log(" + Removing expired entry from cache");
+      console.log("[CACHE]  + Removing expired entry from cache");
       this.items = this.items.filter(cache => cache.classId !== classId);
     }
 

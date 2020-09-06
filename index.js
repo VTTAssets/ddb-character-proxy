@@ -19,10 +19,12 @@ const filterByLevel = (data, spellLevelAccess) => {
   return filteredSpellList;
 };
 
-const extractAlwaysPreparedSpells = (classId, spellLevelAccess) => {
-  console.log("Retrieving always prepared spells for " + classId + " at spell level access " + spellLevelAccess);
+const extractAlwaysPreparedSpells = classInfo => {
   return new Promise((resolve, reject) => {
-    const cache = CACHE.exists(classId);
+    const { name, id, spellLevelAccess } = classInfo;
+    console.log(`Retrieving always prepared spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
+
+    const cache = CACHE.exists(id);
     if (cache !== undefined) {
       const filteredSpells = filterByLevel(cache.data, spellLevelAccess);
       console.log(
@@ -31,13 +33,13 @@ const extractAlwaysPreparedSpells = (classId, spellLevelAccess) => {
       return resolve(filteredSpells);
     }
 
-    const url = CONFIG.urls.alwaysPreparedSpells(classId, 20);
+    const url = CONFIG.urls.alwaysPreparedSpells(id, 20);
     fetch(url)
       .then(res => res.json())
       .then(json => {
         console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (isValidData(json)) {
-          CACHE.add(classId, json.data);
+          CACHE.add(id, json.data);
           const filteredSpells = filterByLevel(json.data, spellLevelAccess);
           console.log(
             `Adding ${filteredSpells.length} of ${json.data.length} spells available to a lvl${spellLevelAccess} caster...`
@@ -84,7 +86,7 @@ const extractClassIds = data => {
       characterClassId: characterClass.id,
       name:
         characterClass.subclassDefinition && characterClass.subclassDefinition.name
-          ? characterClass.definition.name + `(${characterClass.subclassDefinition.name})`
+          ? characterClass.definition.name + ` (${characterClass.subclassDefinition.name})`
           : characterClass.definition.name,
       id:
         characterClass.subclassDefinition && characterClass.subclassDefinition.id
@@ -99,9 +101,7 @@ const extractClassIds = data => {
 
 const loadAlwaysPreparedSpells = classInfo => {
   return new Promise((resolve, reject) => {
-    Promise.allSettled(
-      classInfo.map(classInfo => extractAlwaysPreparedSpells(classInfo.id, classInfo.spellLevelAccess))
-    )
+    Promise.allSettled(classInfo.map(classInfo => extractAlwaysPreparedSpells(classInfo)))
       .then(results => {
         // combining all resolved results
         results.forEach((result, index) => {
@@ -116,11 +116,11 @@ const loadAlwaysPreparedSpells = classInfo => {
 };
 
 const insertAlwaysPreparedSpells = data => {
+  console.log("[ ALWAYS PREPARED SPELLS ========================================= ]");
   return new Promise((resolve, reject) => {
     const classInfo = extractClassIds(data);
     console.log("CLASS INFORMATION:");
     console.log(classInfo);
-    console.log("---");
     loadAlwaysPreparedSpells(classInfo).then(classInfo => {
       // add the always prepared spells to the class' spell list
       data.classSpells = data.classSpells.map(classSpells => {
@@ -185,9 +185,15 @@ app.get("/:characterId", cors(), (req, res) => {
   }
 
   loadCharacterData(characterId)
+    .then(data => {
+      console.log(`Name: ${data.name}, URL: https://character-service.dndbeyond.com/character/v3/character/${data.id}`);
+      return Promise.resolve(data);
+    })
     .then(result => insertAlwaysPreparedSpells(result))
     .then(data => {
       data = filterModifiers(data);
+      console.log("================================================================");
+      console.log("");
       return res.status(200).json({ success: true, message: "Character successfully received.", data: data });
     })
     .catch(error => {

@@ -43,11 +43,17 @@ const getClassFeatures = (cls, classLevel = 20) => {
     Array.isArray(cls.subclassDefinition.classFeatures)
   ) {
     return cls.classFeatures
+      .map(feature => feature.definition)
       .concat(cls.subclassDefinition.classFeatures)
       .filter(classFeature => classFeature.requiredLevel <= classLevel)
       .sort((a, b) => a.requiredLevel - b.requiredLevel);
   } else {
+    const result = cls.classFeatures
+      .map(feature => feature.definition)
+      .filter(classFeature => classFeature.requiredLevel <= classLevel);
+    console.log(result);
     return cls.classFeatures
+      .map(feature => feature.definition)
       .filter(classFeature => classFeature.requiredLevel <= classLevel)
       .sort((a, b) => a.requiredLevel - b.requiredLevel);
   }
@@ -79,7 +85,7 @@ const getClassModifiers = (data, classFeatures, isStartingClass = false) => {
     if (feature !== undefined) {
       const isFeatureAvailable = classModifier.availableToMulticlass ? true : isStartingClass;
       console.log(
-        `${isFeatureAvailable ? "[  AVAIL]" : "[UNAVAIL]"} Modifier found: ${classModifier.friendlyTypeName} (${
+        `${isFeatureAvailable ? "  [  AVAIL]" : "  [UNAVAIL]"} Modifier found: ${classModifier.friendlyTypeName} (${
           classModifier.friendlySubtypeName
         })`
       );
@@ -103,8 +109,6 @@ const filterModifiers = (data, classInfo) => {
   data.classes.forEach((cls, index) => {
     const features = getClassFeatures(cls, cls.level);
     classInfo[index].modifiers = getClassModifiers(data, features, isStartingClass(data, cls.definition.name));
-    //console.log(features);
-    //return modifiers;
   });
   return classInfo;
 };
@@ -116,11 +120,12 @@ const filterModifiers = (data, classInfo) => {
  * Get the class information for this character
  */
 const main = data => {
+  console.log("[ MODIFIERS ====================================================== ]");
   let classInfo = getClassInfo(data);
-  console.log("Player's overview:" + data.name);
   classInfo = filterModifiers(data, classInfo);
   data.modifiers.class = [];
 
+  console.log("");
   classInfo.forEach(cls => {
     console.log(`${cls.isStartingClass ? "Starting Class" : "Multiclass"}: [lvl${cls.level}] ${cls.name} `);
     console.log(
@@ -129,7 +134,6 @@ const main = data => {
         .join("\n")
     );
     data.modifiers.class = data.modifiers.class.concat(cls.modifiers);
-    console.log("---");
   });
   return data;
 };
