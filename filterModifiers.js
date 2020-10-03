@@ -51,7 +51,6 @@ const getClassFeatures = (cls, classLevel = 20) => {
     const result = cls.classFeatures
       .map(feature => feature.definition)
       .filter(classFeature => classFeature.requiredLevel <= classLevel);
-    console.log(result);
     return cls.classFeatures
       .map(feature => feature.definition)
       .filter(classFeature => classFeature.requiredLevel <= classLevel)

@@ -3,7 +3,7 @@
  */
 const CONFIG = {
   urls: {
-    characterUrl: characterId => `https://character-service.dndbeyond.com/character/v3/character/${characterId}`,
+    characterUrl: characterId => `https://character-service.dndbeyond.com/character/v4/character/${characterId}`,
     alwaysPreparedSpells: (classId, classLevel) =>
       `https://character-service.dndbeyond.com/character/v4/game-data/always-prepared-spells?classId=${classId}&classLevel=${classLevel}`,
   },
